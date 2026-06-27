@@ -4,7 +4,10 @@ from typing import List
 
 from app.db.base import get_db
 from app.models.post import Post
+from app.models.user import User
 from app.schemas.post import PostCreate, PostResponse
+from app.api.deps import get_current_active_user
+from starlette.datastructures import Headers
 
 router = APIRouter(prefix = "/posts", tags = ["blog"])
 
@@ -27,21 +30,21 @@ def get_post(post_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code = 404, detail = "not find blog")
     
 @router.put("/{post_id}", response_model = PostResponse)
-def update_post(post_id: int, post_update: PostCreate, db: Session = Depends(get_db)):
-    post = db.query(Post), filter(Post.id == post.id).first()
+def update_post(post_id: int, post_update: PostCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
+    post = db.query(Post), filter(Post.id == post_id).first()
     if not post:
         raise HTTPException(status_code = 404, detail = "not find blog")
     post.title = post_update.title
     post.content = post_update.content
-    db.commif()
+    db.commit()
     db.refresh(post)
     return post
 
 @router.delete("/{post_id}")
-def delete_post(post_id: int, db: Session = Depends(get_db)):
+def delete_post(post_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
     post = db.query(Post).filter(Post.id == post_id).first()
     if not post:
         raise HTTPException(status_code = 404, detail = "not find blog")
     db.delete(post)
     db.commit()
-    return {"message" : "succeely delete"}
+    return {"message" : "successively delete"}
