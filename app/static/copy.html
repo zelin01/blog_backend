@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API 测试工具</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #0b1120;
+            color: #e6f1ff;
+            padding: 2rem;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 2rem;
+            color: #64ffda;
+        }
+        .card {
+            background: #112240;
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        h2 {
+            font-size: 1.1rem;
+            margin-bottom: 1rem;
+            color: #8892b0;
+        }
+        input {
+            width: 100%;
+            padding: 0.75rem;
+            margin-bottom: 0.75rem;
+            background: #0b1120;
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 4px;
+            color: #e6f1ff;
+            font-size: 1rem;
+        }
+        input:focus {
+            outline: none;
+            border-color: #64ffda;
+        }
+        button {
+            padding: 0.6rem 1.2rem;
+            background: transparent;
+            border: 1px solid #64ffda;
+            color: #64ffda;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            margin-right: 0.5rem;
+            margin-top: 0.5rem;
+        }
+        button:hover {
+            background: rgba(100, 255, 218, 0.1);
+        }
+        .result {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: #0b1120;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.85rem;
+            white-space: pre-wrap;
+            word-break: break-all;
+            min-height: 60px;
+            color: #8892b0;
+        }
+        .success { color: #64ffda; }
+        .error { color: #ff6b6b; }
+        .token-box {
+            margin-top: 1rem;
+            padding: 0.75rem;
+            background: #0b1120;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.8rem;
+            color: #8892b0;
+            word-break: break-all;
+        }
+        .status {
+            display: inline-block;
+            padding: 0.2rem 0.6rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            margin-left: 0.5rem;
+        }
+        .status.ok { background: rgba(100,255,218,0.15); color: #64ffda; }
+        .status.fail { background: rgba(255,107,107,0.15); color: #ff6b6b; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 FastAPI 接口测试</h1>
+
+        <!-- 后端地址配置 -->
+        <div class="card">
+            <h2>后端地址</h2>
+            <input type="text" id="baseUrl" value="http://127.0.0.1:8000" placeholder="http://127.0.0.1:8000">
+        </div>
+
+        <!-- 注册 -->
+        <div class="card">
+            <h2>1. 注册 POST /register</h2>
+            <input type="text" id="regUsername" placeholder="用户名">
+            <input type="email" id="regEmail" placeholder="邮箱">
+            <input type="password" id="regPassword" placeholder="密码">
+            <button onclick="register()">注册</button>
+            <div id="regResult" class="result">等待请求...</div>
+        </div>
+
+        <!-- 登录 -->
+        <div class="card">
+            <h2>2. 登录 POST /login</h2>
+            <input type="text" id="loginUsername" placeholder="用户名">
+            <input type="password" id="loginPassword" placeholder="密码">
+            <button onclick="login()">登录</button>
+            <div id="loginResult" class="result">等待请求...</div>
+            <div id="tokenDisplay" class="token-box" style="display:none;"></div>
+        </div>
+
+        <!-- 获取文章 -->
+        <div class="card">
+            <h2>3. 获取文章列表 GET /posts</h2>
+            <button onclick="getPosts()">获取文章</button>
+            <div id="postsResult" class="result">等待请求...</div>
+        </div>
+
+        <!-- 发布文章 -->
+        <div class="card">
+            <h2>4. 发布文章 POST /posts（需登录）</h2>
+            <input type="text" id="postTitle" placeholder="文章标题">
+            <textarea id="postContent" placeholder="文章内容" style="width:100%;min-height:100px;padding:0.75rem;background:#0b1120;border:1px solid rgba(255,255,255,0.15);border-radius:4px;color:#e6f1ff;font-family:inherit;font-size:1rem;resize:vertical;"></textarea>
+            <button onclick="createPost()">发布</button>
+            <div id="createResult" class="result">等待请求...</div>
+        </div>
+    </div>
+
+    <script>
+        const getBase = () => document.getElementById('baseUrl').value.trim() || 'http://127.0.0.1:8000';
+        let token = localStorage.getItem('token') || '';
+
+        function showResult(id, text, isError) {
+            const el = document.getElementById(id);
+            el.textContent = text;
+            el.className = 'result ' + (isError ? 'error' : 'success');
+        }
+
+        async function register() {
+            const username = document.getElementById('regUsername').value.trim();
+            const email = document.getElementById('regEmail').value.trim();
+            const password = document.getElementById('regPassword').value;
+
+            if (!username || !email || !password) {
+                showResult('regResult', '❌ 请填写所有字段', true);
+                return;
+            }
+
+            try {
+                const res = await fetch(`${getBase()}/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, email, password })
+                });
+                const data = await res.json();
+                showResult('regResult',
+                    `${res.ok ? '✅' : '❌'} Status: ${res.status}\n` + JSON.stringify(data, null, 2),
+                    !res.ok
+                );
+            } catch (err) {
+                showResult('regResult', '❌ 请求失败: ' + err.message, true);
+            }
+        }
+
+        async function login() {
+            const username = document.getElementById('loginUsername').value.trim();
+            const password = document.getElementById('loginPassword').value;
+
+            if (!username || !password) {
+                showResult('loginResult', '❌ 请填写用户名和密码', true);
+                return;
+            }
+
+            try {
+                const formData = new URLSearchParams();
+                formData.append('username', username);
+                formData.append('password', password);
+
+                const res = await fetch(`${getBase()}/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: formData
+                });
+                const data = await res.json();
+
+                if (res.ok && data.access_token) {
+                    token = data.access_token;
+                    localStorage.setItem('token', token);
+                    showResult('loginResult', `✅ 登录成功！\nStatus: ${res.status}\n` + JSON.stringify(data, null, 2), false);
+                    document.getElementById('tokenDisplay').style.display = 'block';
+                    document.getElementById('tokenDisplay').textContent = 'Token: ' + token;
+                } else {
+                    showResult('loginResult', `❌ 登录失败\nStatus: ${res.status}\n` + JSON.stringify(data, null, 2), true);
+                }
+            } catch (err) {
+                showResult('loginResult', '❌ 请求失败: ' + err.message, true);
+            }
+        }
+
+        async function getPosts() {
+            try {
+                const res = await fetch(`${getBase()}/posts`);
+                const data = await res.json();
+                showResult('postsResult',
+                    `Status: ${res.status}\n共 ${Array.isArray(data) ? data.length : 0} 篇文章\n\n` + JSON.stringify(data, null, 2),
+                    !res.ok
+                );
+            } catch (err) {
+                showResult('postsResult', '❌ 请求失败: ' + err.message, true);
+            }
+        }
+
+        async function createPost() {
+            const title = document.getElementById('postTitle').value.trim();
+            const content = document.getElementById('postContent').value.trim();
+            token = localStorage.getItem('token') || '';
+
+            if (!token) {
+                showResult('createResult', '❌ 请先登录获取 Token', true);
+                return;
+            }
+            if (!title || !content) {
+                showResult('createResult', '❌ 请填写标题和内容', true);
+                return;
+            }
+
+            try {
+                const res = await fetch(`${getBase()}/posts`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ title, content })
+                });
+                const data = await res.json();
+                showResult('createResult',
+                    `${res.ok ? '✅' : '❌'} Status: ${res.status}\n` + JSON.stringify(data, null, 2),
+                    !res.ok
+                );
+            } catch (err) {
+                showResult('createResult', '❌ 请求失败: ' + err.message, true);
+            }
+        }
+
+        // 页面加载时显示已有 token
+        if (token) {
+            document.getElementById('tokenDisplay').style.display = 'block';
+            document.getElementById('tokenDisplay').textContent = '已有 Token: ' + token.substring(0, 50) + '...';
+        }
+    </script>
+</body>
+</html>
