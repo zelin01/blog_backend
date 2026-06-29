@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, DateTime, func
-from app.db.base import Base
+from app.blogs_db.base import Base
 
 class Post(Base):
     __tablename__ = "posts"

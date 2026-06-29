@@ -1,48 +1,85 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy.orm import Session
-from datetime import timedelta
+from pydantic import BaseModel
+from passlib.context import CryptContext
+from datetime import datetime, timedelta
+from jose import jwt
 
-from app.db.base import get_db
-from app.models.user import User
-from app.schemas.user import UserCreat, UserResponse, Token
-from app.core.security import (
-    get_password_hash, verify_password,creat_access_token,ACCESS_TOKEN_EXPIRE_MINUTES
-)
+router = APIRouter(tags=["auth"])
 
-router = APIRouter(prefix="/auth", tags=["认证"])
+# ============ 配置 ============
+SECRET_KEY = "your-secret-key-change-this-in-production"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-def register(user: UserCreat, db: Session = Depends(get_db)):
-    if db.query(User).filter(User.username == user.username).first():
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# ============ 内存中的用户数据库（生产环境换成真实数据库） ============
+users_db = {}  # key: username, value: {username, hashed_password}
+
+
+# ============ Pydantic 模型 ============
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str
+
+
+# ============ 工具函数 ============
+def hash_password(password: str) -> str:
+    return pwd_context.hash(password)
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+def create_access_token(data: dict, expires_delta: timedelta = None):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=15))
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+# ============ 接口 ============
+
+@router.post("/register", status_code=status.HTTP_201_CREATED)
+async def register(req: RegisterRequest):
+    if req.username in users_db:
         raise HTTPException(status_code=400, detail="用户名已存在")
-    if db.query(User).filter(User.email == user.email).first():
-        raise HTTPException(status_code=400, detail="邮箱已注册")
 
-    db_user  =User(
-        username = user.username,
-        email = user.email,
-        password_hash = get_password_hash(user.password)
-    )
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
-    return db_user
+    hashed = hash_password(req.password)
+    users_db[req.username] = {
+        "username": req.username,
+        "hashed_password": hashed
+    }
+    return {"message": "注册成功"}
 
-@router.post("/login", response_model=Token)
-def login(
-        form_data: OAuth2PasswordRequestForm = Depends(),
-        db: Session = Depends(get_db)
-):
-    user =  db.query(User).filter(User.username == form_data.username).first()
-    if not user or not verify_password(form_data.password, user.password_hash):
+
+@router.post("/login", response_model=TokenResponse)
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = users_db.get(form_data.username)
+    if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户名或密码错误",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = creat_access_token(
-        {"sub": str(user.id)}, access_token_expires
+
+    if not verify_password(form_data.password, user["hashed_password"]):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="用户名或密码错误",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    access_token = create_access_token(
+        data={"sub": user["username"]},
+        expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     )
+
     return {"access_token": access_token, "token_type": "bearer"}

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 
-from app.db.base import get_db
+from app.blogs_db.base import get_db
 from app.models.post import Post
 from app.models.user import User
 from app.schemas.post import PostCreate, PostResponse
@@ -28,7 +28,7 @@ def get_post(post_id: int, db: Session = Depends(get_db)):
     post = db.query(Post).filter(Post.id == post_id).first()
     if not post:
         raise HTTPException(status_code = 404, detail = "not find blog")
-    
+
 @router.put("/{post_id}", response_model = PostResponse)
 def update_post(post_id: int, post_update: PostCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
     post = db.query(Post), filter(Post.id == post_id).first()
